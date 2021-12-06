@@ -75,6 +75,7 @@ public class ConstantValueResolver extends BLangNodeVisitor {
     private Location currentPos;
     private Map<BConstantSymbol, BLangConstant> unresolvedConstants = new HashMap<>();
     private Map<String, BLangConstantValue> constantMap = new HashMap<String, BLangConstantValue>();
+    private Map<BConstantSymbol, BType> updatedTypes = new HashMap<>();
     private ArrayList<BLangTypeDefinition> typeDefinition;
     private SymbolEnv symEnv;
     private BLangAnonymousModelHelper anonymousModelHelper;
@@ -111,8 +112,8 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         constants.forEach(constant -> this.unresolvedConstants.put(constant.symbol, constant));
         constants.forEach(constant -> constant.accept(this));
         constantMap.clear();
-        constants.forEach(constant -> checkUniqueness(constant));
-        constants.forEach(constant -> updateSymbolType(constant));
+//        constants.forEach(constant -> checkUniqueness(constant));
+//        constants.forEach(constant -> updateSymbolType(constant));
     }
 
     @Override
@@ -120,6 +121,8 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         BConstantSymbol tempCurrentConstSymbol = this.currentConstSymbol;
         this.currentConstSymbol = constant.symbol;
         this.currentConstSymbol.value = visitExpr(constant.expr);
+        updateSymbolType(constant);
+        checkUniqueness(constant);
         unresolvedConstants.remove(this.currentConstSymbol);
         this.currentConstSymbol = tempCurrentConstSymbol;
     }
@@ -508,10 +511,11 @@ public class ConstantValueResolver extends BLangNodeVisitor {
     private void updateSymbolType(BLangConstant constant) {
         if (constant.symbol.kind == SymbolKind.CONSTANT && constant.symbol.type.getKind() != TypeKind.FINITE &&
                 constant.symbol.value != null) {
-            BType singletonType = checkType(constant.name.value, constant, constant.symbol.value.value,
+            BType singletonType = checkType(constant.expr, constant.name.value, constant, constant.symbol.value.value,
                     constant.symbol.type, constant.symbol.pos);
             if (singletonType != null) {
                 constant.symbol.type = singletonType;
+                updatedTypes.put((BConstantSymbol) constant.symbol, singletonType);
             }
         }
     }
@@ -525,7 +529,10 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         return finiteType;
     }
 
-    private BType checkType(String name, BLangConstant constant, Object value, BType type, Location pos) {
+    private BType checkType(BLangExpression expr, String name, BLangConstant constant, Object value, BType type, Location pos) {
+        if (expr.getKind() == NodeKind.SIMPLE_VARIABLE_REF && updatedTypes.containsKey(((BLangSimpleVarRef) expr).symbol)) {
+            return updatedTypes.get(((BLangSimpleVarRef) expr).symbol);
+        }
         switch (type.getKind()) {
             case INT:
             case BYTE:
@@ -538,7 +545,7 @@ public class ConstantValueResolver extends BLangNodeVisitor {
                 return createFiniteType(constant, createConstantLiteralExpression(value, type, pos));
             case MAP:
                 if (value != null) {
-                    return createRecordType(name, constant, value, type, pos);
+                    return createRecordType(expr, name, constant, value, type, pos);
                 }
                 return null;
             default:
@@ -564,7 +571,7 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         return literal;
     }
 
-    private BIntersectionType createRecordType(String name, BLangConstant constant, Object value, BType type,
+    private BType createRecordType(BLangExpression expr, String name, BLangConstant constant, Object value, BType type,
                                                Location pos) {
         BRecordTypeSymbol recordTypeSymbol = new BRecordTypeSymbol(SymTag.RECORD, constant.symbol.flags,
                 Names.fromString(name), constant.symbol.pkgID, null, constant.symbol.owner, pos, VIRTUAL);
@@ -574,10 +581,34 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         recordType.flags = Flags.READONLY;
         recordType.restFieldType = new BNoType(TypeTags.NONE);
         recordTypeSymbol.type = recordType;
+
+        HashMap<String, BLangExpression> recordFields = new HashMap<>();
+
+        if (expr.getKind() == NodeKind.RECORD_LITERAL_EXPR) {
+
+            for (RecordLiteralNode.RecordField field : ((BLangRecordLiteral) expr).fields) {
+                BLangRecordLiteral.BLangRecordKeyValueField recordKeyValueField =
+                        (BLangRecordLiteral.BLangRecordKeyValueField) field;
+                recordFields.put(((BLangSimpleVarRef) recordKeyValueField.key.expr).variableName.value,
+                        recordKeyValueField.valueExpr);
+            }
+        }
+
         for (String key : ((HashMap<String, Object>) value).keySet()) {
+            BLangExpression expression = null;
+            if (recordFields.containsKey(key)) {
+                expression = recordFields.get(key);
+                if (expression.getKind() == NodeKind.SIMPLE_VARIABLE_REF) {
+                    BLangSimpleVarRef simpleVarRefExpr = (BLangSimpleVarRef) expression;
+                    if (updatedTypes.containsKey(simpleVarRefExpr.symbol)) {
+                        return updatedTypes.get(simpleVarRefExpr.symbol);
+                    }
+                }
+            }
+
             BVarSymbol newSymbol = new BVarSymbol(constant.symbol.flags, Names.fromString(key), constant.symbol.pkgID, null,
                     constant.symbol.owner, pos, VIRTUAL);
-            newSymbol.type = checkType(key, constant, ((BLangConstantValue) ((HashMap) value).get(key)).value,
+            newSymbol.type = checkType(expression, key, constant, ((BLangConstantValue) ((HashMap) value).get(key)).value,
                     ((BLangConstantValue) ((HashMap) value).get(key)).type, pos);
             BField field = new BField(Names.fromString(key), pos, newSymbol);
             field.symbol.flags |= Flags.REQUIRED;
@@ -644,9 +675,9 @@ public class ConstantValueResolver extends BLangNodeVisitor {
 
 
 
-
+        String genName = anonymousModelHelper.getNextAnonymousTypeKey(pkgID);
         BTypeDefinitionSymbol typeDefinitionSymbol = Symbols.createTypeDefinitionSymbol(originalType.tsymbol.flags,
-                originalType.tsymbol.name, pkgID, null, symEnv.scope.owner, pos, VIRTUAL);
+                names.fromString(genName), pkgID, null, symEnv.scope.owner, pos, VIRTUAL);
 
         typeDefinitionSymbol.scope = new Scope(typeDefinitionSymbol);
         typeDefinitionSymbol.scope.define(
