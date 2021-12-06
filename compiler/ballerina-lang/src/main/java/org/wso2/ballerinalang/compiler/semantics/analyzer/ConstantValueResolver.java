@@ -509,13 +509,14 @@ public class ConstantValueResolver extends BLangNodeVisitor {
     }
 
     private void updateSymbolType(BLangConstant constant) {
-        if (constant.symbol.kind == SymbolKind.CONSTANT && constant.symbol.type.getKind() != TypeKind.FINITE &&
-                constant.symbol.value != null) {
+        if (constant.symbol.type.getKind() == TypeKind.FINITE) {
+            updatedTypes.put(constant.symbol, constant.symbol.type);
+        } else if (constant.symbol.value != null) {
             BType singletonType = checkType(constant.expr, constant.name.value, constant, constant.symbol.value.value,
                     constant.symbol.type, constant.symbol.pos);
             if (singletonType != null) {
                 constant.symbol.type = singletonType;
-                updatedTypes.put((BConstantSymbol) constant.symbol, singletonType);
+                updatedTypes.put(constant.symbol, singletonType);
             }
         }
     }
@@ -596,18 +597,24 @@ public class ConstantValueResolver extends BLangNodeVisitor {
 
         for (String key : ((HashMap<String, Object>) value).keySet()) {
             BLangExpression expression = null;
+
+            BVarSymbol newSymbol = new BVarSymbol(constant.symbol.flags, Names.fromString(key), constant.symbol.pkgID, null,
+                    constant.symbol.owner, pos, VIRTUAL);
+
             if (recordFields.containsKey(key)) {
                 expression = recordFields.get(key);
                 if (expression.getKind() == NodeKind.SIMPLE_VARIABLE_REF) {
                     BLangSimpleVarRef simpleVarRefExpr = (BLangSimpleVarRef) expression;
                     if (updatedTypes.containsKey(simpleVarRefExpr.symbol)) {
-                        return updatedTypes.get(simpleVarRefExpr.symbol);
+                        newSymbol.type = updatedTypes.get(simpleVarRefExpr.symbol);
+                        BField field = new BField(Names.fromString(key), pos, newSymbol);
+                        field.symbol.flags |= Flags.REQUIRED;
+                        recordType.fields.put(key, field);
+                        continue;
                     }
                 }
             }
 
-            BVarSymbol newSymbol = new BVarSymbol(constant.symbol.flags, Names.fromString(key), constant.symbol.pkgID, null,
-                    constant.symbol.owner, pos, VIRTUAL);
             newSymbol.type = checkType(expression, key, constant, ((BLangConstantValue) ((HashMap) value).get(key)).value,
                     ((BLangConstantValue) ((HashMap) value).get(key)).type, pos);
             BField field = new BField(Names.fromString(key), pos, newSymbol);
@@ -621,40 +628,40 @@ public class ConstantValueResolver extends BLangNodeVisitor {
         return intersectionType;
     }
 
-    private void createTypeDefinition(BRecordType originalType, BIntersectionType immutableType, Location pos) {
-        BRecordTypeSymbol recordSymbol = Symbols.createRecordSymbol(originalType.tsymbol.flags, originalType.tsymbol.name,
-                pkgID, null, symEnv.scope.owner, pos, VIRTUAL);
-
-        BInvokableType bInvokableType = new BInvokableType(new ArrayList<>(), symTable.nilType, null);
-        BInvokableSymbol initFuncSymbol = Symbols.createFunctionSymbol(
-                Flags.PUBLIC, Names.EMPTY, Names.EMPTY, symEnv.enclPkg.symbol.pkgID, bInvokableType, symEnv.scope.owner,
-                false, symTable.builtinPos, VIRTUAL);
-        initFuncSymbol.retType = symTable.nilType;
-        recordSymbol.initializerFunc = new BAttachedFunction(Names.INIT_FUNCTION_SUFFIX, initFuncSymbol,
-                bInvokableType, symTable.builtinPos);
-
-        recordSymbol.scope = new Scope(recordSymbol);
-        recordSymbol.scope.define(
-                names.fromString(recordSymbol.name.value + "." + recordSymbol.initializerFunc.funcName.value),
-                recordSymbol.initializerFunc.symbol);
-
-        BRecordType recordType = new BRecordType(recordSymbol, originalType.flags);
-
-        recordType.immutableType = immutableType;
-        recordSymbol.type = recordType;
-        recordType.tsymbol = recordSymbol;
-
-        BLangRecordTypeNode recordTypeNode = TypeDefBuilderHelper.createRecordTypeNode(new ArrayList<>(),
-                recordType, pos);
-
-        populateMutableStructureFields(symTable, names, recordTypeNode,
-                recordType, originalType, pos, symEnv, pkgID);
-        
-        TypeDefBuilderHelper.createInitFunctionForRecordType(recordTypeNode, symEnv, names, symTable);
-        BLangTypeDefinition typeDefinition = TypeDefBuilderHelper.addTypeDefinition(recordType, recordSymbol,
-                recordTypeNode, symEnv);
-        typeDefinition.pos = pos;
-    }
+//    private void createTypeDefinition(BRecordType originalType, BIntersectionType immutableType, Location pos) {
+//        BRecordTypeSymbol recordSymbol = Symbols.createRecordSymbol(originalType.tsymbol.flags, originalType.tsymbol.name,
+//                pkgID, null, symEnv.scope.owner, pos, VIRTUAL);
+//
+//        BInvokableType bInvokableType = new BInvokableType(new ArrayList<>(), symTable.nilType, null);
+//        BInvokableSymbol initFuncSymbol = Symbols.createFunctionSymbol(
+//                Flags.PUBLIC, Names.EMPTY, Names.EMPTY, symEnv.enclPkg.symbol.pkgID, bInvokableType, symEnv.scope.owner,
+//                false, symTable.builtinPos, VIRTUAL);
+//        initFuncSymbol.retType = symTable.nilType;
+//        recordSymbol.initializerFunc = new BAttachedFunction(Names.INIT_FUNCTION_SUFFIX, initFuncSymbol,
+//                bInvokableType, symTable.builtinPos);
+//
+//        recordSymbol.scope = new Scope(recordSymbol);
+//        recordSymbol.scope.define(
+//                names.fromString(recordSymbol.name.value + "." + recordSymbol.initializerFunc.funcName.value),
+//                recordSymbol.initializerFunc.symbol);
+//
+//        BRecordType recordType = new BRecordType(recordSymbol, originalType.flags);
+//
+//        recordType.immutableType = immutableType;
+//        recordSymbol.type = recordType;
+//        recordType.tsymbol = recordSymbol;
+//
+//        BLangRecordTypeNode recordTypeNode = TypeDefBuilderHelper.createRecordTypeNode(new ArrayList<>(),
+//                recordType, pos);
+//
+//        populateMutableStructureFields(symTable, names, recordTypeNode,
+//                recordType, originalType, pos, symEnv, pkgID);
+//
+//        TypeDefBuilderHelper.createInitFunctionForRecordType(recordTypeNode, symEnv, names, symTable);
+//        BLangTypeDefinition typeDefinition = TypeDefBuilderHelper.addTypeDefinition(recordType, recordSymbol,
+//                recordTypeNode, symEnv);
+//        typeDefinition.pos = pos;
+//    }
 
     private void createTypeDefinition2(BRecordType originalType, BIntersectionType immutableType, Location pos) {
         BRecordTypeSymbol recordSymbol = Symbols.createRecordSymbol(originalType.tsymbol.flags, originalType.tsymbol.name,
