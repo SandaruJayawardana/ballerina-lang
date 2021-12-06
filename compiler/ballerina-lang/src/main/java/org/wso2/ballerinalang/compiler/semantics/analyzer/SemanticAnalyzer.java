@@ -312,7 +312,8 @@ public class SemanticAnalyzer extends BLangNodeVisitor {
         // Visit constants first.
         pkgNode.topLevelNodes.stream().filter(pkgLevelNode -> pkgLevelNode.getKind() == NodeKind.CONSTANT)
                 .forEach(constant -> analyzeDef((BLangNode) constant, pkgEnv));
-        this.constantValueResolver.resolve(pkgNode.constants, pkgNode.packageID);
+        this.constantValueResolver.resolve(pkgNode.constants, pkgNode.packageID, pkgEnv, symTable, anonModelHelper,
+                (ArrayList<BLangTypeDefinition>) pkgNode.typeDefinitions, names, types);
 
         for (int i = 0; i < pkgNode.topLevelNodes.size(); i++) {
             TopLevelNode pkgLevelNode = pkgNode.topLevelNodes.get(i);
