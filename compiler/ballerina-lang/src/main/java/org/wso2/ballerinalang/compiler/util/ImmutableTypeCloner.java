@@ -616,7 +616,7 @@ public class ImmutableTypeCloner {
                 symTable.neverType : restFieldImmutableType;
     }
 
-    public static BIntersectionType defineImmutableRecordType(Location pos, BRecordType origRecordType,
+    private static BIntersectionType defineImmutableRecordType(Location pos, BRecordType origRecordType,
                                                                BType originalType,
                                                                SymbolEnv env, SymbolTable symTable,
                                                                BLangAnonymousModelHelper anonymousModelHelper,
