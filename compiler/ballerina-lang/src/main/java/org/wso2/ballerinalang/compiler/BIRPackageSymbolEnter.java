@@ -709,6 +709,7 @@ public class BIRPackageSymbolEnter {
             case TypeTags.NIL:
                 return new BLangConstantValue(null, symTable.nilType);
             case TypeTags.MAP:
+            case TypeTags.RECORD:
                 int size = dataInStream.readInt();
                 Map<String, BLangConstantValue> keyValuePairs = new LinkedHashMap<>();
                 for (int i = 0; i < size; i++) {
@@ -718,6 +719,8 @@ public class BIRPackageSymbolEnter {
                     keyValuePairs.put(key, value);
                 }
                 return new BLangConstantValue(keyValuePairs, valueType);
+            case TypeTags.INTERSECTION:
+                return readConstLiteralValue(((BIntersectionType) valueType).effectiveType, dataInStream);
             case TypeTags.TYPEREFDESC:
                 return readConstLiteralValue(types.getReferredType(valueType), dataInStream);
             default:
